@@ -28,5 +28,5 @@ setup(
     [console_scripts]
     slurpy = slurpy.lrCatalog:main
     """,
-    test_suite='slurpy.tests'
+    test_suite='tests'
 )

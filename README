@@ -1,0 +1,11 @@
+Slurpy
+======
+
+Overview
+--------
+
+Slurpy is a small python app that aims to allow Lightroom users to backup
+and restore their catalogs. While Lightroom is a great application, the
+catalog system imposes restrictions that ideally would not exist.
+
+
