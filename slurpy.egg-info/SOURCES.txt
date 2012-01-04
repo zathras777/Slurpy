@@ -1,0 +1,9 @@
+README
+setup.py
+slurpy/__init__.py
+slurpy/translator.py
+slurpy.egg-info/PKG-INFO
+slurpy.egg-info/SOURCES.txt
+slurpy.egg-info/dependency_links.txt
+slurpy.egg-info/entry_points.txt
+slurpy.egg-info/top_level.txt

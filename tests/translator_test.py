@@ -9,7 +9,7 @@ class TestLookup(unittest.TestCase):
         self.translator = IdTranslator()
 
     def test_translate(self):
-        self.assertIsNotNone(self.translator)
+        self.assertNotEqual(self.translator, None)
 
         pass_1 = [ ['abc', 1, 10], ['abc', 2, 20] ]
         for vals in pass_1:
