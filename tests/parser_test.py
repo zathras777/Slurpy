@@ -6,8 +6,8 @@ from slurpy.parser import *
 # Generic database tests. Tests for individual database classes should go
 # in their own files.
 
-class TestColumns(unittest.TestCase):
-    def test_001(self):
+class TestParser(unittest.TestCase):
+    def test_001_columns(self):
         tests = [
             [ 'abc123', { 'identifier': 'abc123' }],
             [ 'abc123 integer', { 'identifier': 'abc123', 
@@ -38,14 +38,16 @@ class TestColumns(unittest.TestCase):
             for k,v in t[1].items():
                 self.assertEqual(_ck.has_key(k), True)
                 self.assertEqual(_ck[k], v)                
-#    'abc123 varchar (20)',
-#    'abc123 varchar ( 20,  30)',
- #   'abc123 varchar ( 20,  30) primary key',
- ##   'abc123 varchar ( 20,  30) not null primary key',
- #   'abc123 varchar ( 20,  30) primary key unique',
- #   'abc123 varchar ( 20,  30) primary key unique default 0',
- #   "abc123 varchar ( 20,  30) primary key unique default 'abc'",
-  #  'abc123 varchar ( 20,  30) primary key desc autoincrement',
-  #  
-#]
-            
+
+
+    def test_002_tables(self):
+        tests = [
+            [ "create table simple (id integer autoincrement)",
+            ],
+            [ "CREATE TEMP TABLE simple (id integer)", ],
+            [ "CREATE TEMPORARY TABLE if not exists simple (id integer, blah text)", ],
+        ]
+        for t in tests:
+            _ck = parse_table_statement(t[0])
+            self.assertNotEqual(_ck, {})
+
