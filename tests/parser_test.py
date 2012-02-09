@@ -2,6 +2,7 @@ import sys
 import unittest
 
 from slurpy.parser import *
+from files.parser_tests import *
 
 # Generic database tests. Tests for individual database classes should go
 # in their own files.
@@ -51,3 +52,11 @@ class TestParser(unittest.TestCase):
             _ck = parse_table_statement(t[0])
             self.assertNotEqual(_ck, {})
 
+    def test_003_indexes(self):
+        for t in index_tests:
+            _ck = parse_index_statement(t[0])
+            self.assertEqual(_ck['name'], t[1])
+            self.assertEqual(len(_ck['columns']), t[2])
+            self.assertEqual(_ck.has_key('unique'), t[3])
+            
+                        

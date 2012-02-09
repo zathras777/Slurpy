@@ -32,9 +32,12 @@ class IdTranslator(object):
         return self._translators[name]
 
     def set_value(self, name, key, val):
-        self.get_translator(name).set_value(key, val)
+        if key:
+            self.get_translator(name).set_value(key, val)
     
     def get_value(self, name, key):
+        if key is None:
+            return None
         translator = self.get_translator(name, False)
         if translator:
             return translator.get_value(key)

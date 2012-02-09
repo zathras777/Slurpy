@@ -3,10 +3,11 @@ import sys
 import unittest
 
 from slurpy.catalog import Catalog
+from slurpy.databases.postgres import PgDatabase
 
 testDir = os.path.dirname(__file__)
 
-class Testcatalog(unittest.TestCase):
+class TestCatalog(unittest.TestCase):
     def test_001_empty(self):
         c = Catalog()
         
@@ -26,4 +27,17 @@ class Testcatalog(unittest.TestCase):
         ai = c.get_table('Adobe_images')
         self.assertEqual(ai.name, 'Adobe_images')
 
-    
+    def test_003_import(self):
+        c = Catalog(os.path.join(testDir, 'files', 'test2.lrcat'))
+        self.assertEqual(c.version, '0300025')
+        self.assertEqual(c.get_schema_from_catalog(), True)        
+
+        kwargs = {'dbname': 'slurpy', 'user': 'slurpy', 'password': 'slurpy' }
+        db = PgDatabase()
+        self.assertEqual(db.connect(**kwargs), True)
+
+        self.assertEqual(c.create_database(db, True), True)
+        self.assertEqual(c.import_all(db), True)
+        self.assertEqual(c.import_all(db), True)
+        
+

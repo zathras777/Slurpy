@@ -1,3 +1,4 @@
 *.pyc
 slurpy.egg-info
+tests/tests.db
 

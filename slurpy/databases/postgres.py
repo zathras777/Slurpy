@@ -23,8 +23,7 @@ class PgDatabase(DatabaseBase):
                 connStr += '%s=%s ' % (k, kwargs[k])    
 
         try:
-            self._db = psycopg2.connect(connStr) #, 
-#                                    isolation_level = self.isolation_level)
+            self._db = psycopg2.connect(connStr)
         except psycopg2.OperationalError:
             return False
             
@@ -37,23 +36,40 @@ class PgDatabase(DatabaseBase):
         self.connected = False
         return True
 
-    def _query(self, stmt, args = []):
+    def commit(self):
+        self._db.commit()
+        self.in_transaction = False
+   
+    def rollback(self):
+        ''' Finish the transaction, discard all changes. '''
+        self._db.rollback()
+        self.in_transaction = False
+
+    def _actual_execute(self, stmt, args):
         _cur = self._db.cursor()
         _cur.execute(self._convert_query_stmt(stmt), args)
-        _data = _cur.fetchall()
-        _cur.close()
-        return _data
-
-    def _execute(self, stmt):
+        return _cur
+        
+    def _query(self, stmt, args = []):
         try:
-            _cur = self._db.cursor()
-            _cur.execute(stmt)
+            _cur = self._actual_execute(stmt, args)
+            _data = _cur.fetchall()
             _cur.close()
-            self._db.commit()
+            return _data
+        except psycopg2.ProgrammingError, psycopg2.InternalError:
+            return False
+
+    def _execute(self, stmt, args = []):
+        try:
+            _cur = self._actual_execute(stmt, args)
+            _cur.close()
+            if not self.in_transaction:
+                self._db.commit()
             return True
         except psycopg2.ProgrammingError, psycopg2.InternalError:
             # Explicit rollback to return transaction to consistent state
-            self._db.rollback()
+            if not self.in_transaction:
+                self._db.rollback()
             return False
 
     def _drop(self, tbl):
@@ -86,21 +102,7 @@ class PgDatabase(DatabaseBase):
             sqlparts.append('UNIQUE')
         if fld.pkey:
             sqlparts.extend(fld.pkey)
-            
-#    if self.name == 'id_local':
-#      return 'id_local serial PRIMARY KEY'
-#    if self.name in self.FIELDS_TO_CONVERT:
-#      return '%s BIGINT REFERENCES %s (id_local) ON DELETE CASCADE' % (self.name, self.lookupRef())
-#    if self.name == 'id_global':
-#      return 'id_global UUID NOT NULL'
-      
-#    rstr = self.name
-#    rstr += ' %s' % (self.type if self.type else 'TEXT')
-#    if self.unique: rstr += ' UNIQUE'
-#    rstr += ' %s' % ('NULL' if self.null else 'NOT NULL')
-#    if self.primaryKey: rstr += ' PRIMARY_KEY'
-#    if self.default: rstr += ' DEFAULT %s' % self.default
-#    return rstr
+
         return ' '.join(sqlparts)
 
     def create_string(self, tbl):
@@ -109,8 +111,6 @@ class PgDatabase(DatabaseBase):
                     ');']
         return ' '.join(sqlparts)
             
-#    def _insert(self, stmt, args):
-
     def _get_table_list(self):
         """ Return a list of table names from the current
             databases public schema.
@@ -133,4 +133,15 @@ class PgDatabase(DatabaseBase):
         for s in self._get_seq_list():
             self._execute("DROP SEQUENCE %s CASCADE" % s)
         return True
+
+    def insert_row(self, tblname, cols, vals):
+        sql = "INSERT INTO %s (%s) VALUES (%s) RETURNING id_local" % (tblname,
+                            ','.join(cols), ','.join(['%s' for f in vals]))
+        return self._query(sql, vals)[0][0]
+
+    def update_row(self, tblname, cols, vals, _id):
+        sql = "UPDATE %s SET %s WHERE id_local=%%s RETURNING id_local" % (tblname,
+                                    ','.join(['%s=%%s' % c for c in cols]))
+        vals.append(_id)
+        return self._query(sql, vals)[0][0]
 

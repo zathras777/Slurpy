@@ -1,5 +1,6 @@
 ''' The Catalog class represents a Lightroom Catalog. '''
 
+from slurpy.translator import IdTranslator
 from slurpy.database import table_from_string
 from slurpy.databases.sqlite import SqliteDatabase
 from slurpy.databases.postgres import PgDatabase
@@ -42,6 +43,7 @@ class Catalog(object):
 
     def get_schema_from_catalog(self):
         ''' Read the database schema from a Catalog. '''
+        from slurpy.parser import parse_index_statement
         if not self.is_connected:
             return False
         sql = "select name, sql from sqlite_master order by name"
@@ -49,9 +51,14 @@ class Catalog(object):
         for r in rv:
             if 'sqlite' in r[0]: continue
             _tbl = table_from_string(r[1])
-            if not _tbl:
+            if _tbl:
+                self.tables.append(_tbl)
                 continue
-            self.tables.append(_tbl)
+            _idx = parse_index_statement(r[1])
+            if _idx and _idx.has_key('unique'):
+                _tbl = self.get_table(_idx['tablename'])
+                if _tbl:
+                    _tbl.add_index(_idx)            
         self._get_ordered_table_list()
         return True
 
@@ -81,6 +88,18 @@ class Catalog(object):
                 return False
         return True
 
+    def import_all(self, db):
+        ''' Import data into the supplied database. '''
+        ids = IdTranslator()
+        db.start_transaction()
+        for o in self.ordered_table_list:
+             _tbl = self.get_table(o)
+             if not _tbl.move_data(ids, self._catalog, db):
+                 db.rollback()
+                 return False
+        db.commit()
+        return True
+             
     def _get_catalog_version(self):
         rv = self._catalog.query("select value from Adobe_variablesTable where name=?",
                                                        ['Adobe_DBVersion'])
