@@ -8,7 +8,6 @@ class PgDatabase(DatabaseBase):
     ''' Postgresql Database class for Slurpy. '''
     def __init__(self, **kwargs):
         DatabaseBase.__init__(self, **kwargs)
-        self.isolation_level = kwargs.get('isolation_level', 0)
 
     def _connect(self, **kwargs):
         ''' Connect to a postgresql database '''
@@ -57,7 +56,8 @@ class PgDatabase(DatabaseBase):
             _cur.close()
             return _data
         except psycopg2.ProgrammingError, psycopg2.InternalError:
-            return False
+            self._db.rollback()
+            return []
 
     def _execute(self, stmt, args = []):
         try:
@@ -68,49 +68,32 @@ class PgDatabase(DatabaseBase):
             return True
         except psycopg2.ProgrammingError, psycopg2.InternalError:
             # Explicit rollback to return transaction to consistent state
+            print "ERROR"
             if not self.in_transaction:
                 self._db.rollback()
             return False
 
-    def _drop(self, tbl):
+    def _create(self, tbl, is_catalog = False):
+        ''' Create a table using the supplied DatabaseTable object. '''
+        sql = "CREATE TABLE IF NOT EXISTS %s (" % tbl.name
+        flds = []
+        for f in tbl.fields:
+            if is_catalog and f.slurpy:
+                continue
+            flds.append(self._field_statement(f))
+        for n, idx in tbl.indexes.items():
+            columns = ', '.join(idx['names'])
+            flds.append("UNIQUE(%s)" % columns)
+        sql += ',\n'.join(flds) + ')'
+        return self._execute(sql)
+        
+    def _drop(self, tblname):
         ''' Drop a database table. '''
-        return self._execute("drop table if exists %s cascade" % tbl.name)
+        return self._execute("drop table if exists %s cascade" % tblname)
 
     def _convert_query_stmt(self, stmt):
         return stmt.replace('?', '%s')
-
-    def field_string(self, fld):
-        ''' Convert a DatabaseField into an SQL string. '''
-        sqlparts = [ fld.name ]
-        if fld.name == 'id_local' and fld.dbtype == DB_INTEGER:
-            sqlparts.append('SERIAL')
-        elif fld.name == 'id_global':
-            sqlparts.append('UUID')
-        elif fld.dbtype == DB_INTEGER:
-            if fld.dependancy:
-                sqlparts.append('BIGINT')
-                sqlparts.extend(['REFERENCES', fld.dependancy, '(id_local)', 
-                                 'ON DELETE CASCADE'])
-            else:
-                sqlparts.append('INTEGER')
-        elif fld.dbtype == DB_UNKNOWN:
-            sqlparts.append('TEXT')
-             
-        if fld.null:
-            sqlparts.extend(fld.null)
-        if fld.unique:
-            sqlparts.append('UNIQUE')
-        if fld.pkey:
-            sqlparts.extend(fld.pkey)
-
-        return ' '.join(sqlparts)
-
-    def create_string(self, tbl):
-        sqlparts = ['CREATE','TABLE',tbl.name, '(', 
-                    ','.join(self.field_string(f) for f in tbl.fields),
-                    ');']
-        return ' '.join(sqlparts)
-            
+           
     def _get_table_list(self):
         """ Return a list of table names from the current
             databases public schema.
@@ -134,14 +117,92 @@ class PgDatabase(DatabaseBase):
             self._execute("DROP SEQUENCE %s CASCADE" % s)
         return True
 
-    def insert_row(self, tblname, cols, vals):
-        sql = "INSERT INTO %s (%s) VALUES (%s) RETURNING id_local" % (tblname,
-                            ','.join(cols), ','.join(['%s' for f in vals]))
-        return self._query(sql, vals)[0][0]
+    def insert_row(self, tblname, cols, vals, theid = 'id_local'):
+        sql = "INSERT INTO %s (%s) VALUES (%s) RETURNING %s" % (tblname,
+                            ','.join(cols), ','.join(['%s' for f in vals]),
+                                                                     theid)
+        rv = self._query(sql, vals)
+        self._db.commit()
+        return rv[0][0]
 
     def update_row(self, tblname, cols, vals, _id):
         sql = "UPDATE %s SET %s WHERE id_local=%%s RETURNING id_local" % (tblname,
                                     ','.join(['%s=%%s' % c for c in cols]))
         vals.append(_id)
         return self._query(sql, vals)[0][0]
+
+    def get_table_columns(self, tblname):
+        info = {'columns': [], 'column_names': {}, 'column_list': [], 
+                'relations': [], 'unique': [], 'self_relations': []}
+        sql = '''select column_name,data_type, column_default from
+                 INFORMATION_SCHEMA.COLUMNS where table_name = '%s' order
+                 by ordinal_position''' % tblname.lower()
+        cols = self._query(sql)
+        for c in cols:
+            info['column_list'].append(c[0])
+            info['column_names'][c[0]] = len(info['columns'])
+            info['columns'].append({'name': c[0], 'data_type': c[1],
+                                    'default': c[2],
+                                    'n': len(info['columns'])})
+        sql = '''SELECT kcu.column_name, ccu.table_name AS foreign_table_name,
+                 ccu.column_name AS foreign_column_name FROM 
+                 information_schema.table_constraints AS tc 
+                 JOIN information_schema.key_column_usage AS kcu ON 
+                 tc.constraint_name = kcu.constraint_name JOIN 
+                 information_schema.constraint_column_usage AS ccu ON 
+                 ccu.constraint_name = tc.constraint_name WHERE 
+                 constraint_type = 'FOREIGN KEY' and tc.table_name=%s'''
+        rels = self._query(sql, [tblname.lower()])
+        for r in rels:
+            rdata = {'column': r[0], 'foreign_table': r[1],
+                     'foreign_column': r[2], 'n': info['column_names'][r[0]]}
+            if r[1] == tblname.lower():
+                info['self_relations'].append(rdata)
+            else:
+                info['relations'].append(rdata)
+                
+        sql = '''SELECT kcu.column_name FROM information_schema.table_constraints
+                 AS tc JOIN information_schema.key_column_usage AS kcu ON 
+                 tc.constraint_name = kcu.constraint_name WHERE 
+                 constraint_type = 'UNIQUE' and tc.table_name=%s'''
+        
+        ucols = self._query(sql, [tblname.lower()])
+        for u in ucols:
+            if u[0] == 'id_global' and len(ucols) > 1:
+                continue
+            info['unique'].append({'column': u[0], 'n': info['column_names'][u[0]]})
+        return info
+
+    def _dbtype(self, fld):
+        ''' Return the string of datatype to use for field. '''
+        if fld.dbtype == DB_UNKNOWN:
+            if fld.name == 'id_global':
+                return 'UUID'
+            return 'TEXT'
+        elif fld.dbtype == DB_INTEGER:
+            if fld.pkey:
+                return 'SERIAL'
+            return 'INTEGER'
+        elif fld.dbtype == DB_SERIAL:
+            return 'SERIAL'
+        elif fld.dbtype == DB_VARCHAR:
+            return 'VARCHAR (%s)' % fld.size
+        elif fld.dbtype == DB_TEXT:
+            return 'TEXT'
+        return 'TEXT'
+
+    def _field_statement(self, fld):
+        ''' Returns the SQL statement to create a column within a table. '''
+        sql = "%s %s " % (fld.name, self._dbtype(fld))
+        xtras = []
+        if fld.unique: xtras.append('UNIQUE')
+        if fld.pkey: xtras.append('PRIMARY KEY')
+        if not fld.null: xtras.append('NOT NULL')
+        if fld.has_fk:
+            xtras.extend(['REFERENCES', fld.fk_table, "(%s)" % fld.fk_field])
+            if fld.fk_extra:
+                xtras.append(fld.fk_extra)
+                
+        sql += ' '.join(xtras)
+        return sql.strip()
 

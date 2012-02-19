@@ -25,6 +25,7 @@ class IdTranslator(object):
             return -1
 
     def get_translator(self, name, create = True):
+        name = name.lower()
         if not self._translators.has_key(name):
             if not create:
                 return None
@@ -32,10 +33,12 @@ class IdTranslator(object):
         return self._translators[name]
 
     def set_value(self, name, key, val):
+        name = name.lower()
         if key:
             self.get_translator(name).set_value(key, val)
     
     def get_value(self, name, key):
+        name = name.lower()
         if key is None:
             return None
         translator = self.get_translator(name, False)
@@ -43,3 +46,9 @@ class IdTranslator(object):
             return translator.get_value(key)
         return -1
 
+    def dump(self):
+        for k,v in self._translators.items():
+            print k
+            for kk,vv in v.keys.items():
+                print "    %s -> %s" % (kk, vv)
+                

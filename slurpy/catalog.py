@@ -5,6 +5,7 @@ from slurpy.database import table_from_string
 from slurpy.databases.sqlite import SqliteDatabase
 from slurpy.databases.postgres import PgDatabase
 
+
 class Catalog(object):
     ''' Catalog '''
 
@@ -144,3 +145,72 @@ class Catalog(object):
 
         self.ordered_table_list = ordered
 
+    def compare_tables(self, todb):
+        ''' Debug/test function. '''
+        for t in self.ordered_table_list:
+            tbl = self.get_table(t)
+            if tbl:
+                a = tbl.stats(self._catalog)
+                b = tbl.stats(todb)
+                if a['rows'] != b['rows']:
+                    return False
+        return True
+
+from platform import node, system
+class Catalog2(object):
+    ''' Class to represent a Lightroom Catalog file. '''
+    def __init__(self, filename = ''):
+        self.hostname = node()
+        self.system = system()
+        self._db = SqliteDatabase()
+        if filename:
+            self.open(filename)
+
+    def __repr__(self):
+        return u'Lightroom Catalog: %s [%s, %s]' % (self.filename, 
+                                                self.hostname, self.system)
+        
+    @property
+    def is_connected(self):
+        return self._db.is_connected
+        
+    def open(self, filename):
+        ''' Open a catalog file. '''
+        if self._db.connect(dbname = filename):
+            self.filename = filename
+            return True
+        return False
+
+    def close(self):
+        ''' Close the Catalog. '''
+        return self._db.close()
+
+    def stats(self):
+        ''' Collect simple stats about the Catalog. '''
+        tocollect = {
+            'root_folders': "AgLibraryRootFolder",
+            'library_folders': "AgLibraryFolder",
+            'library_files': "AgLibraryFile",
+            'adobe_images': "Adobe_images",
+        }
+        stats = {}
+        for k,v in tocollect.items():
+            sql = "select count(id_local) as num from %s" % v
+            rv = self._db.query(sql)
+            if rv:
+                setattr(self, k, rv[0][0])
+                stats[k] = rv[0][0]
+        return stats
+
+    def get_table_rows(self, name):
+        ''' Get all rows from a table. '''
+        return self._db.query("select * from %s" % name)
+
+    def get_table_row_count(self, name):
+        ''' Return the number of rows in a table within the catalog. '''
+        rv = self._db.query("select count(*) as rows from %s" % name)
+        if rv:
+            return rv[0][0]
+        return 0
+        
+    
